@@ -34,6 +34,25 @@ object cadence extends Module {
       val crossScalaVersion: String = CadenceJvm.this.crossScalaVersion
     }
   }
+
+  object core extends Module {
+    object jvm extends Cross[CadenceCoreJvm](scala213, scala211, scala212) {}
+
+    class CadenceCoreJvm(val crossScalaVersion: String)
+        extends CrossScalaModule
+        with CommonJvmModule
+        with CadencePublishModule { self =>
+
+      def artifactName        = "cadence-core"
+      def scalacPluginIvyDeps = Agg(com.github.ghik.`silencer-plugin`)
+      def ivyDeps = Agg(
+        dev.zio.zio
+      )
+      object test extends Tests {
+        val crossScalaVersion: String = CadenceCoreJvm.this.crossScalaVersion
+      }
+    }
+  }
 }
 
 object Dependencies {
@@ -78,8 +97,106 @@ object Versions {
   )
 }
 
-trait CadenceScalaModule extends ScalaModule with TpolecatModule { self =>
+object Sources {
+  import scala.util.matching.Regex
+  import mill.api.PathRef
+  val ScalaVersionPattern: Regex = """([0-9]+)\.([0-9]+).*""".r
 
+  def platformSpecificSources(givenPlatform: String, conf: String, baseDir: os.Path)(versions: String*) = {
+    val platform = givenPlatform.toLowerCase()
+    (for {
+      version <- versions.toList
+      srcPath <- conf match {
+                   case "main" =>
+                     List(
+                       baseDir / "src",
+                       baseDir / "src" / platform,
+                       baseDir / s"src-$version",
+                       baseDir / s"src-$version" / platform
+                     )
+                   case _ =>
+                     List(
+                       baseDir / conf / "src",
+                       baseDir / conf / "src" / platform,
+                       baseDir / conf / s"src-$version",
+                       baseDir / conf / s"src-$version" / platform
+                     )
+                 }
+      //if os.exists(srcPath)
+    } yield srcPath).distinct.map(p => PathRef(p))
+  }
+
+  def crossPlatformSources(
+    scalaVer: String,
+    platform: String,
+    conf: String,
+    baseDir: os.Path,
+    isDotty: Boolean = false
+  ) = {
+    val versions = partialVersion(scalaVer) match {
+      case Some((2, 11)) =>
+        List("2.11", "2.11+", "2.11-2.12", "2.x")
+      case Some((2, 12)) =>
+        List("2.12", "2.11+", "2.12+", "2.11-2.12", "2.12-2.13", "2.x")
+      case Some((2, 13)) =>
+        List("2.13", "2.11+", "2.12+", "2.13+", "2.12-2.13", "2.x")
+      case _ if isDotty =>
+        List("dotty", "2.11+", "2.12+", "2.13+", "3.x")
+      case _ =>
+        List()
+    }
+    platformSpecificSources(platform, conf, baseDir)(versions: _*)
+  }
+
+  def partialVersion(version: String) = version match {
+    case ScalaVersionPattern(major, minor) => Option(major.toInt -> minor.toInt)
+    case _                                 => None
+  }
+}
+
+object CrossScalaVersions {
+  import scala.util.matching.Regex
+  import mill.api.PathRef
+  val ScalaVersionPattern: Regex = """([0-9]+)\.([0-9]+).*""".r
+
+  def platformSpecificSources(platform: String, conf: String, baseDirectory: os.Path)(versions: String*) = for {
+    platform <- List("shared", platform)
+    version  <- "scala" :: versions.toList.map("scala-" + _)
+    result    = baseDirectory / os.up / platform.toLowerCase / "src" / conf / version
+    if os.exists(result)
+  } yield result
+
+  def scalaVersionPaths(scalaVersion: String, f: String => os.Path, isDotty: Boolean = false) = {
+    def resolvePaths(additional: List[String]) = {
+      val common = for (segments <- scalaVersion.split('.').inits.filter(_.nonEmpty)) yield segments.mkString(".")
+      val paths  = common.toSet ++ additional.toSet
+      paths.map(p => PathRef(f(p)))
+    }
+
+    partialVersion(scalaVersion) match {
+      case Some((2, 11)) =>
+        resolvePaths(List("2.11", "2.11+", "2.11-2.12", "2.x"))
+      case Some((2, 12)) =>
+        resolvePaths(List("2.12", "2.11+", "2.12+", "2.11-2.12", "2.12-2.13", "2.x"))
+      case Some((2, 13)) =>
+        resolvePaths(List("2.13", "2.11+", "2.12+", "2.13+", "2.12-2.13", "2.x"))
+      case _ if isDotty =>
+        resolvePaths(List("dotty", "2.11+", "2.12+", "2.13+", "3.x"))
+      case _ =>
+        resolvePaths(List())
+    }
+  }
+
+  def partialVersion(version: String) = version match {
+    case ScalaVersionPattern(major, minor) => Option(major.toInt -> minor.toInt)
+    case _                                 => None
+  }
+}
+
+trait CadenceScalaModule extends ScalaModule with TpolecatModule { self =>
+  import Dependencies._
+  def scalacPluginIvyDeps = Agg(com.github.ghik.`silencer-plugin`)
+  def compileIvyDeps      = Agg(com.github.ghik.`silencer-lib`)
   override def scalacOptions = T {
     super.scalacOptions().filterNot(Set("-Xlint:nullary-override"))
   }
@@ -132,25 +249,20 @@ trait CadenceCommonModule extends CadenceScalaModule with ScalafmtModule {
   )
 
   def platformSegment: String
-
-  //def millSourcePath = super.millSourcePath / ammonite.ops.up
-  def sources = T.sources(
-    super
-      .sources()
-      .flatMap(source =>
-        Seq(
-          PathRef(source.path),
-          PathRef(source.path / os.up / platformSegment / source.path.last)
-        )
-      )
-  )
 }
 
 trait CommonJvmModule extends CadenceCommonModule {
   def platformSegment = "jvm"
   def crossScalaVersion: String
+  def isDotty: Boolean = false
 
   def millSourcePath = super.millSourcePath / os.up
+  def sources = T.sources(
+    super
+      .sources()
+      .++(Sources.crossPlatformSources(crossScalaVersion, platformSegment, "main", millSourcePath, isDotty))
+      .distinct
+  )
   trait Tests extends super.Tests with CadenceTestModule {
     def platformSegment = "jvm"
   }
@@ -161,6 +273,16 @@ trait CommonJsModule extends CadenceCommonModule with ScalaJSModule {
   def crossScalaJSVersion: String
   def scalaJSVersion = crossScalaJSVersion
   def millSourcePath = super.millSourcePath / os.up / os.up
+  def sources = T.sources(
+    super
+      .sources()
+      .flatMap(source =>
+        Seq(
+          PathRef(source.path),
+          PathRef(source.path / os.up / platformSegment / source.path.last)
+        )
+      )
+  )
   trait Tests extends super.Tests with CadenceTestModule {
     def platformSegment = "js"
     def scalaJSVersion  = crossScalaJSVersion
@@ -169,7 +291,8 @@ trait CommonJsModule extends CadenceCommonModule with ScalaJSModule {
 
 trait CadenceTestModule extends CadenceScalaModule with TestModule {
   import Dependencies._
-  def millSourcePath = super.millSourcePath / os.up
+  def millSourcePath   = super.millSourcePath / os.up
+  def isDotty: Boolean = false
 
   def crossScalaVersion: String
   def platformSegment: String
@@ -184,21 +307,7 @@ trait CadenceTestModule extends CadenceScalaModule with TestModule {
 
   def offset: os.RelPath = os.rel
   def sources = T.sources(
-    super
-      .sources()
-      .++(
-        CrossModuleBase
-          .scalaVersionPaths(crossScalaVersion, s => millSourcePath / s"src-$s")
-      )
-      .flatMap(source =>
-        Seq(
-          PathRef(source.path / os.up / "test" / source.path.last),
-          PathRef(
-            source.path / os.up / platformSegment / "test" / source.path.last
-          )
-        )
-      )
-      .distinct
+    Sources.crossPlatformSources(crossScalaVersion, platformSegment, "test", millSourcePath, isDotty)
   )
 
   def resources = T.sources(

@@ -1,10 +1,11 @@
 package cadence
 import zio._
 
-abstract class ZStep[-SIn, +SOut, -P, -R, +E, +A] { self =>
-  import ZStep._
+abstract class ZStep[+Ctx, -SIn, +SOut, -P, -R, +E, +A] { self =>
+  //import ZStep._
 
   protected[cadence] def behavior(state: SIn, parameters: P): ZIO[R, E, (SOut, A)]
+
 }
 
 object ZStep {
