@@ -154,45 +154,6 @@ object Sources {
   }
 }
 
-object CrossScalaVersions {
-  import scala.util.matching.Regex
-  import mill.api.PathRef
-  val ScalaVersionPattern: Regex = """([0-9]+)\.([0-9]+).*""".r
-
-  def platformSpecificSources(platform: String, conf: String, baseDirectory: os.Path)(versions: String*) = for {
-    platform <- List("shared", platform)
-    version  <- "scala" :: versions.toList.map("scala-" + _)
-    result    = baseDirectory / os.up / platform.toLowerCase / "src" / conf / version
-    if os.exists(result)
-  } yield result
-
-  def scalaVersionPaths(scalaVersion: String, f: String => os.Path, isDotty: Boolean = false) = {
-    def resolvePaths(additional: List[String]) = {
-      val common = for (segments <- scalaVersion.split('.').inits.filter(_.nonEmpty)) yield segments.mkString(".")
-      val paths  = common.toSet ++ additional.toSet
-      paths.map(p => PathRef(f(p)))
-    }
-
-    partialVersion(scalaVersion) match {
-      case Some((2, 11)) =>
-        resolvePaths(List("2.11", "2.11+", "2.11-2.12", "2.x"))
-      case Some((2, 12)) =>
-        resolvePaths(List("2.12", "2.11+", "2.12+", "2.11-2.12", "2.12-2.13", "2.x"))
-      case Some((2, 13)) =>
-        resolvePaths(List("2.13", "2.11+", "2.12+", "2.13+", "2.12-2.13", "2.x"))
-      case _ if isDotty =>
-        resolvePaths(List("dotty", "2.11+", "2.12+", "2.13+", "3.x"))
-      case _ =>
-        resolvePaths(List())
-    }
-  }
-
-  def partialVersion(version: String) = version match {
-    case ScalaVersionPattern(major, minor) => Option(major.toInt -> minor.toInt)
-    case _                                 => None
-  }
-}
-
 trait CadenceScalaModule extends ScalaModule with TpolecatModule { self =>
   import Dependencies._
   def scalacPluginIvyDeps = Agg(com.github.ghik.`silencer-plugin`)
