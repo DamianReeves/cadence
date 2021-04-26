@@ -125,12 +125,4 @@ object ZStep {
     )
   }
 
-//  implicit class RunnableStep[SIn, SOut, P, R, E, A](val self: ZStep[SIn, SOut, P, Has[StepExecutor] with R, E, A])
-//      extends AnyVal {
-//    def run(state: SIn, parameters: P): ZIO[Has[StepExecutor] with R, E, (SOut, A)] =
-//      for {
-//        _       <- StepExecutor.nextSequenceNumber
-//        results <- self.behavior(state, parameters)
-//      } yield results
-//  }
 }
