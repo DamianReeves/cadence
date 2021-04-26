@@ -67,7 +67,7 @@ object Dependencies {
   }
   case object dev {
     case object zio {
-      val version = "1.0.6"
+      val version = "1.0.7"
 
       val zio            = ivy"dev.zio::zio:$version"
       val `zio-test`     = ivy"dev.zio::zio-test:$version"

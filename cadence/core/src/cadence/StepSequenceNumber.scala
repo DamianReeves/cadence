@@ -9,4 +9,5 @@ object StepSequenceNumber {
   def fromLong(number: Long): StepSequenceNumber = StepSequenceNumber(number)
 
   val zero: StepSequenceNumber = StepSequenceNumber(0)
+
 }

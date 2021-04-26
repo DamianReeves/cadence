@@ -1,17 +1,13 @@
 package cadence
 
-import cadence.core.StepSequenceNumberGeneratorLive
 import zio._
 
-trait StepSequenceNumberGenerator {
-  def next: UIO[StepSequenceNumber]
-}
+import java.util.concurrent.atomic.AtomicLong
 
 object StepSequenceNumberGenerator {
+  private val counter: AtomicLong = new AtomicLong()
 
-  val next: ZIO[Has[StepSequenceNumberGenerator], Nothing, StepSequenceNumber] =
-    ZIO.serviceWith[StepSequenceNumberGenerator](_.next)
+  val next: UIO[StepSequenceNumber] =
+    UIO.effectTotal(StepSequenceNumber.fromLong(counter.incrementAndGet()))
 
-  val live: ULayer[Has[StepSequenceNumberGenerator]] =
-    StepSequenceNumberGeneratorLive.make().toLayer
 }
