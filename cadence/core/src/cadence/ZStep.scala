@@ -7,7 +7,31 @@ final case class ZStep[-SIn, +SOut, -P, -R, +E, +A] private (
 ) { self =>
   //import ZStep._
 
+  def >>>[SOut2, R1 <: R, E1 >: E, B](that: ZStep[SOut, SOut2, A, R1, E1, B]): ZStep[SIn, SOut2, P, R1, E1, B] =
+    self andThen that
+
+  def *>[SIn1 <: SIn, P1 <: P, R1 <: R, E1 >: E, SOut1, B](
+    that: ZStep[SIn1, SOut1, P1, R1, E1, B]
+  ): ZStep[SIn1, SOut1, P1, R1, E1, B] =
+    ZStep(self.behavior *> that.behavior)
+
+  def andThen[SOut2, R1 <: R, E1 >: E, B](that: ZStep[SOut, SOut2, A, R1, E1, B]): ZStep[SIn, SOut2, P, R1, E1, B] =
+    ZStep(behavior = ZIO.accessM[(StepExecutionContext, SIn, P, R1)] { case (context, _, _, r) =>
+      self.behavior.flatMap { case (sOut, a) =>
+        that.behavior.provide((context, sOut, a, r))
+      }
+    })
+
   def as[B](value: B): ZStep[SIn, SOut, P, R, E, B] = self.map(_ => value)
+
+  def flatMap[SOut1, P1 <: P, R1 <: R, E1 >: E, B](
+    continuation: A => ZStep[SOut, SOut1, P1, R1, E1, B]
+  ): ZStep[SIn, SOut1, P1, R1, E1, B] =
+    ZStep[SIn, SOut1, P1, R1, E1, B](
+      behavior = ZIO.accessM[(StepExecutionContext, SIn, P1, R1)] { case (context, _, p, r) =>
+        behavior.flatMap { case (stateOutA, a) => continuation(a).behavior.provide((context, stateOutA, p, r)) }
+      }
+    )
 
   /**
    * Returns a `ZStep` whose success is mapped by the specified function f.
@@ -63,22 +87,42 @@ object ZStep {
 
   def fromBehavior[SIn, SOut, P, R, E, A](behavior: Behavior[SIn, SOut, P, R, E, A]): ZStep[SIn, SOut, P, R, E, A] =
     ZStep(behavior = behavior, metadata = StepMetadata.empty)
+
+  def fromFunction[In, Out](f: In => Out): ZStep[Any, Any, In, Any, Throwable, Out] = ZStep(
+    ZIO.accessM[(StepExecutionContext, Any, In, Any)](env => ZIO.effect((env._2, f(env._3))))
+  )
 //
 //  def fromEffect[S, R, E, A](effect: ZIO[R, E, (S, A)]) = ???
 //
   def get[S]: ZStep[S, S, Any, Any, Nothing, S] =
     ZStep(behavior = ZIO.access[(Any, S, Any, Any)](env => (env._2, env._2)))
 
-  def getState[S: Tag]: ZStep[State[S], Any, Any, Any, Nothing, S] = ???
-
-  def setOutputs[S, A](state: S, value: A): UStep[S, A] = ZStep(ZIO.succeed((state, value)))
-  def succeed[S, A](value: A): ZStep[S, S, Any, Any, Nothing, A] = ZStep(
-    behavior = ZIO.access[(StepExecutionContext, S, Any, Any)](env => (env._2, value))
+  def getState[S: Tag]: ZStep[State[S], State[S], Any, Any, Nothing, S] = ZStep(
+    behavior = ZIO.accessM[(StepExecutionContext, State[S], Any, Any)](env => env._2.get.get.map(v => (env._2, v)))
   )
 
+  def setOutputs[S, A](state: S, value: A): UStep[S, A] = ZStep(ZIO.succeed((state, value)))
+
+  def succeed[S]: SucceedPartiallyApplied[S] = new SucceedPartiallyApplied[S]
+
+  def stateWith[S]: StateWithPartiallyApplied[S] = new StateWithPartiallyApplied[S]
+
   final class StateWithPartiallyApplied[SIn](private val dummy: Boolean = true) extends AnyVal {
-    def apply[SOut, P, R, E, A](f: SIn => ZStep[State[SIn], SOut, P, R, E, A]): ZStep[State[SIn], SOut, P, R, E, A] =
-      ???
+    def apply[SOut, P, R, E, A](
+      f: SIn => ZStep[State[SIn], SOut, P, R, E, A]
+    )(implicit ev: Tag[StateRef[SIn]]): ZStep[State[SIn], SOut, P, R, E, A] =
+      ZStep(ZIO.accessM[(StepExecutionContext, State[SIn], P, R)] { case (_, stateIn, _, _) =>
+        for {
+          sIn    <- stateIn.get[StateRef[SIn]].get
+          result <- f(sIn).behavior
+        } yield result
+      })
+  }
+
+  final class SucceedPartiallyApplied[S](private val dummy: Boolean = true) extends AnyVal {
+    def apply[A](value: => A): ZStep[S, S, Any, Any, Nothing, A] = ZStep(
+      ZIO.access[(StepExecutionContext, S, Any, Any)](env => (env._2, value))
+    )
   }
 
 //  implicit class RunnableStep[SIn, SOut, P, R, E, A](val self: ZStep[SIn, SOut, P, Has[StepExecutor] with R, E, A])
