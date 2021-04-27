@@ -1,7 +1,9 @@
 package cadence
 
 import cadence.StepOutput.StateOnly
+import zio._
 
+import scala.annotation.nowarn
 sealed abstract class StepOutput[+S, +A] extends Product with Serializable { self =>
 
   def getState: Option[S] = self match {
@@ -27,6 +29,10 @@ sealed abstract class StepOutput[+S, +A] extends Product with Serializable { sel
     case output @ StateOnly(_)         => output
     case StepOutput.ValueOnly(value)   => StepOutput.ValueOnly(f(value))
   }
+
+  def state_(implicit @nowarn ev: CanProduceState[S]): UIO[S] = ZIO.effectTotal(getState.get)
+  def value_(implicit @nowarn ev: CanProduceValue[A]): UIO[A] = ZIO.effectTotal(getValue.get)
+
 }
 
 object StepOutput {

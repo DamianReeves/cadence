@@ -45,7 +45,10 @@ object cadence extends Module {
 
       def artifactName        = "cadence-core"
       def scalacPluginIvyDeps = Agg(com.github.ghik.`silencer-plugin`)
+
+      def compileIvyDeps = Agg(com.github.ghik.`silencer-lib`)
       def ivyDeps = Agg(
+        org.`scala-lang`.modules.`scala-collection-compat`,
         dev.zio.zio
       )
       object test extends Tests {
@@ -76,6 +79,11 @@ object Dependencies {
   }
 
   case object org {
+    case object `scala-lang` {
+      case object modules {
+        val `scala-collection-compat` = ivy"org.scala-lang.modules::scala-collection-compat:2.4.3"
+      }
+    }
     case object scalamacros {
       val paradise = ivy"org.scalamacros:::paradise:2.1.1"
     }
@@ -84,7 +92,7 @@ object Dependencies {
 
 object Versions {
   val scala211  = "2.11.12"
-  val scala212  = "2.12.12"
+  val scala212  = "2.12.13"
   val scala213  = "2.13.4"
   val scalaJS06 = "0.6.32"
   val scalaJS1  = "1.0.0"
